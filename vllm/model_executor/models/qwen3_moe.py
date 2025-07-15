@@ -56,7 +56,7 @@ from .interfaces import SupportsPP, MixtureOfExperts
 from .utils import (AutoWeightsLoader, extract_layer_index,
                     is_pp_missing_parameter,
                     make_empty_intermediate_tensors_factory, make_layers,
-                    maybe_prefix)
+                    maybe_prefix, PPMissingLayer)
 
 logger = init_logger(__name__)
 
@@ -483,6 +483,7 @@ class Qwen3MoeModel(nn.Module):
                                             expert_id=expert_id,
                                             return_success=True)
                     if success:
+                        name = name_mapped
                         break
                 else:
                     if is_expert_weight:
@@ -551,15 +552,18 @@ class Qwen3MoeForCausalLM(nn.Module, SupportsPP, MixtureOfExperts):
         self.expert_weights = []
 
         self.moe_layers: list[FusedMoE] = []
+        example_layer = None
         for layer in self.model.layers:
+            if isinstance(layer, PPMissingLayer):
+                continue
             assert isinstance(layer, Qwen3MoeDecoderLayer)
-            if isinstance(layer.mlp, Qwen3MoeDecoderLayer):
+            if isinstance(layer.mlp, Qwen3MoeSparseMoeBlock):
+                example_layer = layer.mlp
                 self.moe_layers.append(layer.mlp.experts)
         self.num_moe_layers = len(self.moe_layers)
 
-        example_layer = typing.cast(
-            Qwen3MoeSparseMoeBlock,
-            self.model.layers[config.num_hidden_layers - 1].mlp)
+        if example_layer is None:
+            raise RuntimeError("No Qwen3MoeSparseMoeBlock layer found in model.layers.")
         
         self.num_expert_groups = 1
         self.num_logical_experts = example_layer.n_logical_experts
