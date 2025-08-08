@@ -326,6 +326,7 @@ class OpenAIServingCompletion(OpenAIServing):
         num_prompt_tokens = [0] * num_prompts
         num_cached_tokens = None
         first_iteration = True
+        first_chunk_sent = False
 
         stream_options = request.stream_options
         if stream_options:
@@ -431,6 +432,11 @@ class OpenAIServingCompletion(OpenAIServing):
                             )
                         ],
                     )
+
+                    # Add V1 timing info to the first chunk only
+                    if not first_chunk_sent and res.v1_timing:
+                        chunk.vllm_timing = res.v1_timing
+                        first_chunk_sent = True
                     if include_continuous_usage:
                         prompt_tokens = num_prompt_tokens[prompt_idx]
                         completion_tokens = previous_num_tokens[i]
@@ -569,6 +575,12 @@ class OpenAIServingCompletion(OpenAIServing):
         request_metadata.final_usage_info = usage
         if final_res_batch:
             kv_transfer_params = final_res_batch[0].kv_transfer_params
+
+        # Extract V1 timing info from the last response (most complete)
+        v1_timing = None
+        if last_final_res and last_final_res.v1_timing:
+            v1_timing = last_final_res.v1_timing
+
         return CompletionResponse(
             id=request_id,
             created=created_time,
@@ -576,6 +588,7 @@ class OpenAIServingCompletion(OpenAIServing):
             choices=choices,
             usage=usage,
             kv_transfer_params=kv_transfer_params,
+            vllm_timing=v1_timing,
         )
 
     def _create_completion_logprobs(

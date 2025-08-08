@@ -24,7 +24,7 @@ import random
 import time
 import warnings
 from collections.abc import AsyncGenerator, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Optional
 
@@ -73,6 +73,22 @@ class BenchmarkMetrics:
     median_e2el_ms: float
     std_e2el_ms: float
     percentiles_e2el_ms: list[tuple[float, float]]
+    # vLLM V1 timing metrics
+    mean_queue_time_ms: float = 0.0
+    median_queue_time_ms: float = 0.0
+    std_queue_time_ms: float = 0.0
+    percentiles_queue_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
+    mean_prefill_time_ms: float = 0.0
+    median_prefill_time_ms: float = 0.0
+    std_prefill_time_ms: float = 0.0
+    percentiles_prefill_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
+    mean_decode_time_ms: float = 0.0
+    median_decode_time_ms: float = 0.0
+    std_decode_time_ms: float = 0.0
+    percentiles_decode_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
 
 
 def _get_current_request_rate(
@@ -218,6 +234,10 @@ def calculate_metrics(
     all_tpots: list[float] = []
     ttfts: list[float] = []
     e2els: list[float] = []
+    # vLLM V1 timing data
+    queue_times: list[float] = []
+    prefill_times: list[float] = []
+    decode_times: list[float] = []
     for i in range(len(outputs)):
         if outputs[i].success:
             output_len = outputs[i].output_tokens
@@ -243,6 +263,20 @@ def calculate_metrics(
             itls += outputs[i].itl
             ttfts.append(outputs[i].ttft)
             e2els.append(outputs[i].latency)
+            
+            # Collect vLLM V1 timing data if available
+            if outputs[i].vllm_timing:
+                timing = outputs[i].vllm_timing
+                if timing.get("queued_time"):
+                    # Convert to ms
+                    queue_times.append(timing["queued_time"] * 1000)
+                if timing.get("prefill_time"):
+                    # Convert to ms
+                    prefill_times.append(timing["prefill_time"] * 1000)
+                if timing.get("decode_time"):
+                    # Convert to ms
+                    decode_times.append(timing["decode_time"] * 1000)
+            
             completed += 1
         else:
             actual_output_lens.append(0)
@@ -303,6 +337,28 @@ def calculate_metrics(
         median_e2el_ms=np.median(e2els or 0) * 1000,
         percentiles_e2el_ms=[(p, np.percentile(e2els or 0, p) * 1000)
                              for p in selected_percentiles],
+        # vLLM V1 timing metrics
+        mean_queue_time_ms=np.mean(queue_times or 0),
+        median_queue_time_ms=np.median(queue_times or 0),
+        std_queue_time_ms=np.std(queue_times or 0),
+        percentiles_queue_time_ms=[
+            (p, np.percentile(queue_times or 0, p))
+            for p in selected_percentiles
+        ] if queue_times else [],
+        mean_prefill_time_ms=np.mean(prefill_times or 0),
+        median_prefill_time_ms=np.median(prefill_times or 0),
+        std_prefill_time_ms=np.std(prefill_times or 0),
+        percentiles_prefill_time_ms=[
+            (p, np.percentile(prefill_times or 0, p))
+            for p in selected_percentiles
+        ] if prefill_times else [],
+        mean_decode_time_ms=np.mean(decode_times or 0),
+        median_decode_time_ms=np.median(decode_times or 0),
+        std_decode_time_ms=np.std(decode_times or 0),
+        percentiles_decode_time_ms=[
+            (p, np.percentile(decode_times or 0, p))
+            for p in selected_percentiles
+        ] if decode_times else [],
     )
 
     return metrics, actual_output_lens
@@ -506,6 +562,8 @@ async def benchmark(
                                     metrics.output_throughput))
     print("{:<40} {:<10.2f}".format("Total Token throughput (tok/s):",
                                     metrics.total_token_throughput))
+    
+    # Print vLLM V1 timing statistics if available using process_one_metric
 
     result = {
         "duration": benchmark_duration,
@@ -523,6 +581,17 @@ async def benchmark(
         "itls": [output.itl for output in outputs],
         "generated_texts": [output.generated_text for output in outputs],
         "errors": [output.error for output in outputs],
+        "vllm_timings": [output.vllm_timing for output in outputs],
+        # vLLM V1 timing summary statistics
+        "mean_queue_time_ms": metrics.mean_queue_time_ms,
+        "median_queue_time_ms": metrics.median_queue_time_ms,
+        "std_queue_time_ms": metrics.std_queue_time_ms,
+        "mean_prefill_time_ms": metrics.mean_prefill_time_ms,
+        "median_prefill_time_ms": metrics.median_prefill_time_ms,
+        "std_prefill_time_ms": metrics.std_prefill_time_ms,
+        "mean_decode_time_ms": metrics.mean_decode_time_ms,
+        "median_decode_time_ms": metrics.median_decode_time_ms,
+        "std_decode_time_ms": metrics.std_decode_time_ms,
     }
 
     if rps_change_events:
@@ -565,6 +634,12 @@ async def benchmark(
                        "Time per Output Token (excl. 1st token)")
     process_one_metric("itl", "ITL", "Inter-token Latency")
     process_one_metric("e2el", "E2EL", "End-to-end Latency")
+    
+    # Add vLLM V1 timing metrics if available
+    if metrics.mean_queue_time_ms > 0:
+        process_one_metric("queue_time", "Queue Time", "vLLM Queue Time")
+        process_one_metric("prefill_time", "Prefill Time", "vLLM Prefill Time")
+        process_one_metric("decode_time", "Decode Time", "vLLM Decode Time")
 
     print("=" * 50)
 
@@ -625,11 +700,16 @@ def save_to_pytorch_benchmark_format(args: argparse.Namespace,
     metrics = [
         "median_ttft_ms", "mean_ttft_ms", "std_ttft_ms", "p99_ttft_ms",
         "mean_tpot_ms", "median_tpot_ms", "std_tpot_ms", "p99_tpot_ms",
-        "median_itl_ms", "mean_itl_ms", "std_itl_ms", "p99_itl_ms"
+        "median_itl_ms", "mean_itl_ms", "std_itl_ms", "p99_itl_ms",
+        "mean_queue_time_ms", "median_queue_time_ms", "std_queue_time_ms",
+        "mean_prefill_time_ms", "median_prefill_time_ms", "std_prefill_time_ms",
+        "mean_decode_time_ms", "median_decode_time_ms", "std_decode_time_ms"
     ]
     # These raw data might be useful, but they are rather big. They can be added
     # later if needed
-    ignored_metrics = ["ttfts", "itls", "generated_texts", "errors"]
+    ignored_metrics = [
+        "ttfts", "itls", "generated_texts", "errors", "vllm_timings"
+    ]
     pt_records = convert_to_pytorch_benchmark_format(
         args=args,
         metrics={k: [results[k]]
@@ -801,10 +881,11 @@ def add_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--percentile-metrics",
         type=str,
-        default="ttft,tpot,itl",
+        default="ttft,tpot,itl,e2el",
         help="Comma-separated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
-        "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\". ")
+        "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\", "
+        "\"queue_time\", \"prefill_time\", \"decode_time\". ")
     parser.add_argument(
         "--metric-percentiles",
         type=str,
@@ -1061,6 +1142,7 @@ def main(args: argparse.Namespace):
                     "itls",
                     "generated_texts",
                     "errors",
+                    "vllm_timings",
             ]:
                 if field in result_json:
                     del result_json[field]
@@ -1073,9 +1155,12 @@ def main(args: argparse.Namespace):
                                if args.max_concurrency is not None else "")
         label = label or endpoint_type
         if args.ramp_up_strategy is not None:
-            file_name = f"{label}-ramp-up-{args.ramp_up_strategy}-{args.ramp_up_start_rps}qps-{args.ramp_up_end_rps}qps{max_concurrency_str}-{base_model_id}-{current_dt}.json" # noqa
+            file_name = (f"{label}-ramp-up-{args.ramp_up_strategy}-"
+                        f"{args.ramp_up_start_rps}qps-{args.ramp_up_end_rps}qps"
+                        f"{max_concurrency_str}-{base_model_id}-{current_dt}.json")
         else:
-            file_name = f"{label}-{args.request_rate}qps{max_concurrency_str}-{base_model_id}-{current_dt}.json"  # noqa
+            file_name = (f"{label}-{args.request_rate}qps"
+                        f"{max_concurrency_str}-{base_model_id}-{current_dt}.json")
         if args.result_filename:
             file_name = args.result_filename
         if args.result_dir:

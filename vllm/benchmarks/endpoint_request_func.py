@@ -46,6 +46,7 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
+    vllm_timing: Optional[dict[str, float]] = None  # V1 timing information
 
 
 async def async_request_openai_completions(
@@ -115,6 +116,11 @@ async def async_request_openai_completions(
 
                         if chunk != "[DONE]":
                             data = json.loads(chunk)
+
+                            # Extract V1 timing info from the first chunk
+                            if (not output.vllm_timing and 
+                                data.get("vllm_timing")):
+                                output.vllm_timing = data["vllm_timing"]
 
                             # NOTE: Some completion API might have a last
                             # usage summary response without a token so we
@@ -231,6 +237,11 @@ async def async_request_openai_chat_completions(
                         if chunk != "[DONE]":
                             timestamp = time.perf_counter()
                             data = json.loads(chunk)
+
+                            # Extract V1 timing info from the first chunk
+                            if (not output.vllm_timing and 
+                                data.get("vllm_timing")):
+                                output.vllm_timing = data["vllm_timing"]
 
                             if choices := data.get("choices"):
                                 content = choices[0]["delta"].get("content")

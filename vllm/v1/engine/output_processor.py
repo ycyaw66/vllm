@@ -230,6 +230,7 @@ class RequestState:
             finished=finished,
             kv_transfer_params=kv_transfer_params,
             num_cached_tokens=num_cached_tokens,
+            v1_timing=self._get_v1_timing() if finished else None,
         )
 
     def _new_completion_output(
@@ -269,6 +270,34 @@ class RequestState:
     ) -> PoolingOutput:
 
         return PoolingOutput(data=pooling_output)
+
+    def _get_v1_timing(self) -> Optional[dict[str, float]]:
+        """Extract V1 timing information from request stats."""
+        if self.stats is None:
+            return None
+
+        stats = self.stats
+        v1_timing = {
+            "arrival_time": stats.arrival_time,
+            "queued_ts": stats.queued_ts,
+            "scheduled_ts": stats.scheduled_ts,
+            "first_token_ts": stats.first_token_ts,
+            "last_token_ts": stats.last_token_ts,
+        }
+
+        # Calculate derived timing metrics
+        if stats.scheduled_ts > 0 and stats.queued_ts > 0:
+            v1_timing["queued_time"] = stats.scheduled_ts - stats.queued_ts
+
+        if stats.first_token_ts > 0 and stats.scheduled_ts > 0:
+            v1_timing[
+                "prefill_time"] = stats.first_token_ts - stats.scheduled_ts
+
+        if stats.last_token_ts > 0 and stats.first_token_ts > 0:
+            v1_timing[
+                "decode_time"] = stats.last_token_ts - stats.first_token_ts
+
+        return v1_timing
 
 
 class OutputProcessor:

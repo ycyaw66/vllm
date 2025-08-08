@@ -1460,6 +1460,11 @@ class CompletionResponse(OpenAIBaseModel):
     kv_transfer_params: Optional[dict[str, Any]] = Field(
         default=None, description="KVTransfer parameters.")
 
+    # vLLM-specific timing information (V1 only)
+    vllm_timing: Optional[dict[str, float]] = Field(
+        default=None,
+        description="Timing information for prefill queue and execute phases")
+
 
 class CompletionResponseStreamChoice(OpenAIBaseModel):
     index: int
@@ -1482,6 +1487,11 @@ class CompletionStreamResponse(OpenAIBaseModel):
     model: str
     choices: list[CompletionResponseStreamChoice]
     usage: Optional[UsageInfo] = Field(default=None)
+
+    # vLLM-specific timing information (V1 only)
+    vllm_timing: Optional[dict[str, float]] = Field(
+        default=None,
+        description="Timing information for prefill queue and execute phases")
 
 
 class EmbeddingResponseData(OpenAIBaseModel):
@@ -1658,6 +1668,11 @@ class ChatCompletionResponse(OpenAIBaseModel):
     kv_transfer_params: Optional[dict[str, Any]] = Field(
         default=None, description="KVTransfer parameters.")
 
+    # vLLM-specific timing information (V1 only)
+    vllm_timing: Optional[dict[str, float]] = Field(
+        default=None,
+        description="Timing information for prefill queue and execute phases")
+
 
 class DeltaMessage(OpenAIBaseModel):
     role: Optional[str] = None
@@ -1681,6 +1696,11 @@ class ChatCompletionStreamResponse(OpenAIBaseModel):
     model: str
     choices: list[ChatCompletionResponseStreamChoice]
     usage: Optional[UsageInfo] = Field(default=None)
+
+    # vLLM-specific timing information (V1 only)
+    vllm_timing: Optional[dict[str, float]] = Field(
+        default=None,
+        description="Timing information for prefill queue and execute phases")
 
 
 class TranscriptionResponseStreamChoice(OpenAIBaseModel):
