@@ -326,7 +326,6 @@ class OpenAIServingCompletion(OpenAIServing):
         num_prompt_tokens = [0] * num_prompts
         num_cached_tokens = None
         first_iteration = True
-        first_chunk_sent = False
 
         stream_options = request.stream_options
         if stream_options:
@@ -433,10 +432,10 @@ class OpenAIServingCompletion(OpenAIServing):
                         ],
                     )
 
-                    # Add V1 timing info to the first chunk only
-                    if not first_chunk_sent and res.v1_timing:
+                    # Add V1 timing info when available
+                    # (typically the last chunk)
+                    if res.v1_timing:
                         chunk.vllm_timing = res.v1_timing
-                        first_chunk_sent = True
                     if include_continuous_usage:
                         prompt_tokens = num_prompt_tokens[prompt_idx]
                         completion_tokens = previous_num_tokens[i]

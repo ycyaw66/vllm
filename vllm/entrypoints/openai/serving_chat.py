@@ -429,7 +429,6 @@ class OpenAIServingChat(OpenAIServing):
         created_time = int(time.time())
         chunk_object_type: Final = "chat.completion.chunk"
         first_iteration = True
-        first_chunk_sent = False
 
         # Send response for each token for each request.n (index)
         num_choices = 1 if request.n is None else request.n
@@ -533,10 +532,10 @@ class OpenAIServingChat(OpenAIServing):
                             choices=[choice_data],
                             model=model_name)
 
-                        # Add V1 timing info to the first chunk only
-                        if not first_chunk_sent and res.v1_timing:
+                        # Add V1 timing info when available
+                        # (typically the last chunk)
+                        if res.v1_timing:
                             chunk.vllm_timing = res.v1_timing
-                            first_chunk_sent = True
 
                         # if continuous usage stats are requested, add it
                         if include_continuous_usage:
