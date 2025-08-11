@@ -46,7 +46,9 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
-    vllm_timing: Optional[dict[str, float]] = None  # V1 timing information
+    # vLLM V1 timing information as individual attributes
+    queued_time: Optional[float] = None  # Time spent in queue (seconds)
+    prefill_time: Optional[float] = None  # Time spent in prefill (seconds)
 
 
 async def async_request_openai_completions(
@@ -117,11 +119,6 @@ async def async_request_openai_completions(
                         if chunk != "[DONE]":
                             data = json.loads(chunk)
 
-                            # Extract V1 timing info from the first chunk
-                            if (not output.vllm_timing and 
-                                data.get("vllm_timing")):
-                                output.vllm_timing = data["vllm_timing"]
-
                             # NOTE: Some completion API might have a last
                             # usage summary response without a token so we
                             # want to check a token was generated
@@ -135,6 +132,15 @@ async def async_request_openai_completions(
                                     first_chunk_received = True
                                     ttft = time.perf_counter() - st
                                     output.ttft = ttft
+                                    
+                                    # Extract V1 prefill timing info at first
+                                    # token
+                                    if data.get("vllm_timing"):
+                                        timing = data["vllm_timing"]
+                                        output.queued_time = timing.get(
+                                            "queued_time")
+                                        output.prefill_time = timing.get(
+                                            "prefill_time")
 
                                 # Decoding phase
                                 else:
@@ -238,17 +244,21 @@ async def async_request_openai_chat_completions(
                             timestamp = time.perf_counter()
                             data = json.loads(chunk)
 
-                            # Extract V1 timing info from the first chunk
-                            if (not output.vllm_timing and 
-                                data.get("vllm_timing")):
-                                output.vllm_timing = data["vllm_timing"]
-
                             if choices := data.get("choices"):
                                 content = choices[0]["delta"].get("content")
                                 # First token
                                 if ttft == 0.0:
                                     ttft = timestamp - st
                                     output.ttft = ttft
+                                    
+                                    # Extract V1 prefill timing info at first
+                                    # token
+                                    if data.get("vllm_timing"):
+                                        timing = data["vllm_timing"]
+                                        output.queued_time = timing.get(
+                                            "queued_time")
+                                        output.prefill_time = timing.get(
+                                            "prefill_time")
 
                                 # Decoding phase
                                 else:

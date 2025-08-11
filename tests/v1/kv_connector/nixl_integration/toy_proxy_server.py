@@ -162,8 +162,12 @@ async def send_request_to_service(client_info: dict, endpoint: str,
     }
     req_data["stream"] = False
     req_data["max_tokens"] = 1
-    if "stream_options" in req_data:
-        del req_data["stream_options"]
+    # Add stream_options to potentially get timing info in non-stream response
+    req_data["stream_options"] = {"include_usage": True}
+    if "extra_body" not in req_data:
+        req_data["extra_body"] = {}
+    # Try to request timing information
+    req_data["extra_body"]["include_timing"] = True
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
         "X-Request-Id": request_id
@@ -214,6 +218,16 @@ async def _handle_completions(api: str, request: Request):
         if kv_transfer_params:
             req_data["kv_transfer_params"] = kv_transfer_params
 
+        prefill_timing = {}
+
+        # Debug: Log the response to see what's available
+        if 'vllm_timing' in response_json:
+            timing = response_json['vllm_timing']
+            prefill_timing['queued_time'] = timing.get('queued_time')
+            prefill_timing['prefill_time'] = timing.get('prefill_time')
+        else:
+            logger.debug("No vllm_timing found in prefill response")
+
         # Get the next decode client in round-robin fashion
         decode_client_info = get_next_client(request.app, 'decode')
 
@@ -221,10 +235,33 @@ async def _handle_completions(api: str, request: Request):
 
         # Stream response from decode service
         async def generate_stream():
+            first_chunk = True
             async for chunk in stream_service_response(decode_client_info,
                                                        api,
                                                        req_data,
                                                        request_id=request_id):
+                # Inject prefill timing into the first chunk
+                if first_chunk and prefill_timing:
+                    first_chunk = False
+                    try:
+                        import json
+
+                        # Parse the chunk to inject timing info
+                        chunk_str = chunk.decode('utf-8')
+                        if chunk_str.startswith('data: '):
+                            data_str = chunk_str[6:].strip()
+                            if data_str and data_str != '[DONE]':
+                                data = json.loads(data_str)
+                                # Inject prefill timing
+                                if 'vllm_timing' not in data:
+                                    data['vllm_timing'] = {}
+                                data['vllm_timing'].update(prefill_timing)
+                                # Reconstruct chunk
+                                chunk = f"data: {json.dumps(data)}\n\n".encode(
+                                )
+                    except Exception as e:
+                        logger.warning("Failed to inject timing info: %s", e)
+
                 yield chunk
 
         return StreamingResponse(generate_stream(),
