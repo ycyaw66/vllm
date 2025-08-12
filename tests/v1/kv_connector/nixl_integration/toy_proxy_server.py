@@ -251,8 +251,8 @@ async def _handle_completions(api: str, request: Request):
                             if data_str and data_str != '[DONE]':
                                 data = json.loads(data_str)
                                 assert ('vllm_timing' in data and
-                                        'queued_timing' in data['vllm_timing']
-                                        and 'execute_timing'
+                                        'queued_time' in data['vllm_timing']
+                                        and 'execute_time'
                                         in data['vllm_timing'])
                                 data['vllm_timing'] = {
                                     '   ': \
@@ -260,7 +260,7 @@ async def _handle_completions(api: str, request: Request):
                                     'prefill_execute_time': \
                                         prefill_timing['prefill_execute_time'],
                                     'decode_queued_time': \
-                                        data['vllm_timing']['queued_timing'],
+                                        data['vllm_timing']['queued_time'],
                                     'decode_execute_time': \
                                         data['vllm_timing']['execute_time'],
                                 }
