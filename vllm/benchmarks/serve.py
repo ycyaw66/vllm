@@ -73,16 +73,25 @@ class BenchmarkMetrics:
     median_e2el_ms: float
     std_e2el_ms: float
     percentiles_e2el_ms: list[tuple[float, float]]
-    # vLLM V1 timing metrics
-    mean_queue_time_ms: float = 0.0
-    median_queue_time_ms: float = 0.0
-    std_queue_time_ms: float = 0.0
-    percentiles_queue_time_ms: list[tuple[float, float]] = field(
+    mean_prefill_queue_time_ms: float = 0.0
+    median_prefill_queue_time_ms: float = 0.0
+    std_prefill_queue_time_ms: float = 0.0
+    percentiles_prefill_queue_time_ms: list[tuple[float, float]] = field(
         default_factory=list)
-    mean_prefill_time_ms: float = 0.0
-    median_prefill_time_ms: float = 0.0
-    std_prefill_time_ms: float = 0.0
-    percentiles_prefill_time_ms: list[tuple[float, float]] = field(
+    mean_prefill_execute_time_ms: float = 0.0
+    median_prefill_execute_time_ms: float = 0.0
+    std_prefill_execute_time_ms: float = 0.0
+    percentiles_prefill_execute_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
+    mean_decode_queue_time_ms: float = 0.0
+    median_decode_queue_time_ms: float = 0.0
+    std_decode_queue_time_ms: float = 0.0
+    percentiles_decode_queue_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
+    mean_decode_execute_time_ms: float = 0.0
+    median_decode_execute_time_ms: float = 0.0
+    std_decode_execute_time_ms: float = 0.0
+    percentiles_decode_execute_time_ms: list[tuple[float, float]] = field(
         default_factory=list)
 
 
@@ -230,8 +239,10 @@ def calculate_metrics(
     ttfts: list[float] = []
     e2els: list[float] = []
     # vLLM V1 timing data
-    queue_times: list[float] = []
-    prefill_times: list[float] = []
+    prefill_queue_times: list[float] = []
+    prefill_execute_times: list[float] = []
+    decode_queue_times: list[float] = []
+    decode_execute_times: list[float] = []
     for i in range(len(outputs)):
         if outputs[i].success:
             output_len = outputs[i].output_tokens
@@ -260,12 +271,18 @@ def calculate_metrics(
             
             # Collect vLLM V1 timing data if available using individual
             # attributes
-            if outputs[i].queued_time is not None:
+            if outputs[i].prefill_queued_time is not None:
                 # Convert to ms
-                queue_times.append(outputs[i].queued_time * 1000)
-            if outputs[i].prefill_time is not None:
+                prefill_queue_times.append(outputs[i].prefill_queued_time * 1000)
+            if outputs[i].prefill_execute_time is not None:
                 # Convert to ms
-                prefill_times.append(outputs[i].prefill_time * 1000)
+                prefill_execute_times.append(outputs[i].prefill_execute_time * 1000)
+            if outputs[i].decode_queued_time is not None:
+                # Convert to ms
+                decode_queue_times.append(outputs[i].decode_queued_time * 1000)
+            if outputs[i].decode_execute_time is not None:
+                # Convert to ms
+                decode_execute_times.append(outputs[i].decode_execute_time * 1000)
             
             completed += 1
         else:
@@ -328,20 +345,34 @@ def calculate_metrics(
         percentiles_e2el_ms=[(p, np.percentile(e2els or 0, p) * 1000)
                              for p in selected_percentiles],
         # vLLM V1 timing metrics
-        mean_queue_time_ms=np.mean(queue_times or 0),
-        median_queue_time_ms=np.median(queue_times or 0),
-        std_queue_time_ms=np.std(queue_times or 0),
-        percentiles_queue_time_ms=[
-            (p, np.percentile(queue_times or 0, p))
+        mean_prefill_queue_time_ms=np.mean(prefill_queue_times or 0),
+        median_prefill_queue_time_ms=np.median(prefill_queue_times or 0),
+        std_prefill_queue_time_ms=np.std(prefill_queue_times or 0),
+        percentiles_prefill_queue_time_ms=[
+            (p, np.percentile(prefill_queue_times or 0, p))
             for p in selected_percentiles
-        ] if queue_times else [],
-        mean_prefill_time_ms=np.mean(prefill_times or 0),
-        median_prefill_time_ms=np.median(prefill_times or 0),
-        std_prefill_time_ms=np.std(prefill_times or 0),
-        percentiles_prefill_time_ms=[
-            (p, np.percentile(prefill_times or 0, p))
+        ] if prefill_queue_times else [],
+        mean_prefill_execute_time_ms=np.mean(prefill_execute_times or 0),
+        median_prefill_execute_time_ms=np.median(prefill_execute_times or 0),
+        std_prefill_execute_time_ms=np.std(prefill_execute_times or 0),
+        percentiles_prefill_execute_time_ms=[
+            (p, np.percentile(prefill_execute_times or 0, p))
             for p in selected_percentiles
-        ] if prefill_times else [],
+        ] if prefill_execute_times else [],
+        mean_decode_queue_time_ms=np.mean(decode_queue_times or 0),
+        median_decode_queue_time_ms=np.median(decode_queue_times or 0),
+        std_decode_queue_time_ms=np.std(decode_queue_times or 0),
+        percentiles_decode_queue_time_ms=[
+            (p, np.percentile(decode_queue_times or 0, p))
+            for p in selected_percentiles
+        ] if decode_queue_times else [],
+        mean_decode_execute_time_ms=np.mean(decode_execute_times or 0),
+        median_decode_execute_time_ms=np.median(decode_execute_times or 0),
+        std_decode_execute_time_ms=np.std(decode_execute_times or 0),
+        percentiles_decode_execute_time_ms=[
+            (p, np.percentile(decode_execute_times or 0, p))
+            for p in selected_percentiles
+        ] if decode_execute_times else [],
     )
 
     return metrics, actual_output_lens
@@ -564,8 +595,10 @@ async def benchmark(
         "itls": [output.itl for output in outputs],
         "generated_texts": [output.generated_text for output in outputs],
         "errors": [output.error for output in outputs],
-        "queue_times": [output.queued_time for output in outputs],
-        "prefill_times": [output.prefill_time for output in outputs],
+        "prefill_queue_times": [output.prefill_queued_time for output in outputs],
+        "prefill_execute_times": [output.prefill_execute_time for output in outputs],
+        "decode_queue_times": [output.decode_queued_time for output in outputs],
+        "decode_execute_times": [output.decode_execute_time for output in outputs],
     }
 
     if rps_change_events:
@@ -608,8 +641,10 @@ async def benchmark(
                        "Time per Output Token (excl. 1st token)")
     process_one_metric("itl", "ITL", "Inter-token Latency")
     process_one_metric("e2el", "E2EL", "End-to-end Latency")
-    process_one_metric("queue_time", "Queue Time", "vLLM Queue Time")
-    process_one_metric("prefill_time", "Prefill Time", "vLLM Prefill Time")
+    process_one_metric("prefill_queue_time", "Prefill Queue Time", "Prefill Queue Time")
+    process_one_metric("prefill_execute_time", "Prefill Execute Time", "Prefill Execute Time")
+    process_one_metric("decode_queue_time", "Decode Queue Time", "Decode Queue Time")
+    process_one_metric("decode_execute_time", "Decode Execute Time", "Decode Execute Time")
 
     print("=" * 50)
 
@@ -671,14 +706,17 @@ def save_to_pytorch_benchmark_format(args: argparse.Namespace,
         "median_ttft_ms", "mean_ttft_ms", "std_ttft_ms", "p99_ttft_ms",
         "mean_tpot_ms", "median_tpot_ms", "std_tpot_ms", "p99_tpot_ms",
         "median_itl_ms", "mean_itl_ms", "std_itl_ms", "p99_itl_ms",
-        "mean_queue_time_ms", "median_queue_time_ms", "std_queue_time_ms",
-        "mean_prefill_time_ms", "median_prefill_time_ms", "std_prefill_time_ms"
+        "mean_prefill_queue_time_ms", "median_prefill_queue_time_ms", "std_prefill_queue_time_ms",
+        "mean_prefill_execute_time_ms", "median_prefill_execute_time_ms", "std_prefill_execute_time_ms",
+        "mean_decode_queue_time_ms", "median_decode_queue_time_ms", "std_decode_queue_time_ms",
+        "mean_decode_execute_time_ms", "median_decode_execute_time_ms", "std_decode_execute_time_ms",
     ]
     # These raw data might be useful, but they are rather big. They can be added
     # later if needed
     ignored_metrics = [
         "ttfts", "itls", "generated_texts", "errors", 
-        "queue_times", "prefill_times"
+        "prefill_queue_times", "prefill_execute_times",
+        "decode_queue_times", "decode_execute_times",
     ]
     pt_records = convert_to_pytorch_benchmark_format(
         args=args,
@@ -851,11 +889,13 @@ def add_cli_args(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--percentile-metrics",
         type=str,
-        default="ttft,tpot,itl,e2el",
+        default="ttft,tpot,itl,e2el,prefill_queue_time,prefill_execute_time,"
+        "decode_queue_time,decode_execute_time",
         help="Comma-separated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
         "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\", "
-        "\"queue_time\", \"prefill_time\". ")
+        "\"prefill_queue_time\", \"prefill_execute_time\", "
+        "\"decode_queue_time\", \"decode_execute_time\". ")
     parser.add_argument(
         "--metric-percentiles",
         type=str,
@@ -1112,8 +1152,10 @@ def main(args: argparse.Namespace):
                     "itls",
                     "generated_texts",
                     "errors",
-                    "queue_times",
-                    "prefill_times",
+                    "prefill_queue_times",
+                    "prefill_execute_times",
+                    "decode_queue_times",
+                    "decode_execute_times",
             ]:
                 if field in result_json:
                     del result_json[field]

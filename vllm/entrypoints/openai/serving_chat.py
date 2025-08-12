@@ -534,8 +534,8 @@ class OpenAIServingChat(OpenAIServing):
 
                         # Add V1 timing info when available
                         # (typically the last chunk)
-                        if res.v1_timing:
-                            chunk.vllm_timing = res.v1_timing
+                        if res.timing:
+                            chunk.vllm_timing = res.timing
 
                         # if continuous usage stats are requested, add it
                         if include_continuous_usage:
@@ -1156,9 +1156,9 @@ class OpenAIServingChat(OpenAIServing):
         request_metadata.final_usage_info = usage
 
         # Extract V1 timing info from the final response
-        v1_timing = None
-        if final_res and final_res.v1_timing:
-            v1_timing = final_res.v1_timing
+        timing = None
+        if final_res and final_res.timing:
+            timing = final_res.timing
 
         response = ChatCompletionResponse(
             id=request_id,
@@ -1168,7 +1168,7 @@ class OpenAIServingChat(OpenAIServing):
             usage=usage,
             prompt_logprobs=clamp_prompt_logprobs(final_res.prompt_logprobs),
             kv_transfer_params=final_res.kv_transfer_params,
-            vllm_timing=v1_timing,
+            vllm_timing=timing,
         )
 
         return response

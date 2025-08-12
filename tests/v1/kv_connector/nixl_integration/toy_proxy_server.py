@@ -162,12 +162,10 @@ async def send_request_to_service(client_info: dict, endpoint: str,
     }
     req_data["stream"] = False
     req_data["max_tokens"] = 1
-    # Add stream_options to potentially get timing info in non-stream response
-    req_data["stream_options"] = {"include_usage": True}
-    if "extra_body" not in req_data:
-        req_data["extra_body"] = {}
-    # Try to request timing information
-    req_data["extra_body"]["include_timing"] = True
+    if "max_completion_tokens" in req_data:
+        req_data["max_completion_tokens"] = 1
+    if "stream_options" in req_data:
+        del req_data["stream_options"]
     headers = {
         "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
         "X-Request-Id": request_id
@@ -223,8 +221,8 @@ async def _handle_completions(api: str, request: Request):
         # Debug: Log the response to see what's available
         if 'vllm_timing' in response_json:
             timing = response_json['vllm_timing']
-            prefill_timing['queued_time'] = timing.get('queued_time')
-            prefill_timing['prefill_time'] = timing.get('prefill_time')
+            prefill_timing['prefill_queued_time'] = timing.get('queued_time')
+            prefill_timing['prefill_execute_time'] = timing.get('execute_time')
         else:
             logger.debug("No vllm_timing found in prefill response")
 
@@ -252,10 +250,20 @@ async def _handle_completions(api: str, request: Request):
                             data_str = chunk_str[6:].strip()
                             if data_str and data_str != '[DONE]':
                                 data = json.loads(data_str)
-                                # Inject prefill timing
-                                if 'vllm_timing' not in data:
-                                    data['vllm_timing'] = {}
-                                data['vllm_timing'].update(prefill_timing)
+                                assert ('vllm_timing' in data and
+                                        'queued_timing' in data['vllm_timing']
+                                        and 'execute_timing'
+                                        in data['vllm_timing'])
+                                data['vllm_timing'] = {
+                                    '   ': \
+                                        prefill_timing['prefill_queued_time'],
+                                    'prefill_execute_time': \
+                                        prefill_timing['prefill_execute_time'],
+                                    'decode_queued_time': \
+                                        data['vllm_timing']['queued_timing'],
+                                    'decode_execute_time': \
+                                        data['vllm_timing']['execute_time'],
+                                }
                                 # Reconstruct chunk
                                 chunk = f"data: {json.dumps(data)}\n\n".encode(
                                 )

@@ -46,9 +46,10 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
-    # vLLM V1 timing information as individual attributes
-    queued_time: Optional[float] = None  # Time spent in queue (seconds)
-    prefill_time: Optional[float] = None  # Time spent in prefill (seconds)
+    prefill_queued_time: Optional[float] = None
+    prefill_execute_time: Optional[float] = None
+    decode_queued_time: Optional[float] = None
+    decode_execute_time: Optional[float] = None
 
 
 async def async_request_openai_completions(
@@ -137,10 +138,14 @@ async def async_request_openai_completions(
                                     # token
                                     if data.get("vllm_timing"):
                                         timing = data["vllm_timing"]
-                                        output.queued_time = timing.get(
-                                            "queued_time")
-                                        output.prefill_time = timing.get(
-                                            "prefill_time")
+                                        output.prefill_queued_time = timing.get(
+                                            "prefill_queued_time")
+                                        output.prefill_execute_time = timing.get(
+                                            "prefill_execute_time")
+                                        output.decode_queued_time = timing.get(
+                                            "decode_queued_time")
+                                        output.decode_execute_time = timing.get(
+                                            "decode_execute_time")
 
                                 # Decoding phase
                                 else:
@@ -250,15 +255,6 @@ async def async_request_openai_chat_completions(
                                 if ttft == 0.0:
                                     ttft = timestamp - st
                                     output.ttft = ttft
-                                    
-                                    # Extract V1 prefill timing info at first
-                                    # token
-                                    if data.get("vllm_timing"):
-                                        timing = data["vllm_timing"]
-                                        output.queued_time = timing.get(
-                                            "queued_time")
-                                        output.prefill_time = timing.get(
-                                            "prefill_time")
 
                                 # Decoding phase
                                 else:

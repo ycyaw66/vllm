@@ -434,8 +434,8 @@ class OpenAIServingCompletion(OpenAIServing):
 
                     # Add V1 timing info when available
                     # (typically the last chunk)
-                    if res.v1_timing:
-                        chunk.vllm_timing = res.v1_timing
+                    if res.timing:
+                        chunk.vllm_timing = res.timing
                     if include_continuous_usage:
                         prompt_tokens = num_prompt_tokens[prompt_idx]
                         completion_tokens = previous_num_tokens[i]
@@ -576,9 +576,9 @@ class OpenAIServingCompletion(OpenAIServing):
             kv_transfer_params = final_res_batch[0].kv_transfer_params
 
         # Extract V1 timing info from the last response (most complete)
-        v1_timing = None
-        if last_final_res and last_final_res.v1_timing:
-            v1_timing = last_final_res.v1_timing
+        timing = None
+        if last_final_res and last_final_res.timing:
+            timing = last_final_res.timing
 
         return CompletionResponse(
             id=request_id,
@@ -587,7 +587,7 @@ class OpenAIServingCompletion(OpenAIServing):
             choices=choices,
             usage=usage,
             kv_transfer_params=kv_transfer_params,
-            vllm_timing=v1_timing,
+            vllm_timing=timing,
         )
 
     def _create_completion_logprobs(
