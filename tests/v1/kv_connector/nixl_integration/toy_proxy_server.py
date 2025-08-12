@@ -255,7 +255,7 @@ async def _handle_completions(api: str, request: Request):
                                         and 'execute_time'
                                         in data['vllm_timing'])
                                 data['vllm_timing'] = {
-                                    '   ': \
+                                    'prefill_queued_time': \
                                         prefill_timing['prefill_queued_time'],
                                     'prefill_execute_time': \
                                         prefill_timing['prefill_execute_time'],
