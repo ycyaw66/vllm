@@ -709,9 +709,9 @@ async def benchmark(
     process_one_metric("e2el", "E2EL", "End-to-end Latency")
     process_one_metric("prefill_queue_time", "Prefill Queue Time", "Prefill Queue Time")
     process_one_metric("prefill_execute_time", "Prefill Execute Time", "Prefill Execute Time")
+    process_one_metric("kv_transfer_time", "KV Transfer Time", "KV Transfer Time")
     process_one_metric("decode_queue_time", "Decode Queue Time", "Decode Queue Time")
     process_one_metric("decode_execute_time", "Decode Execute Time", "Decode Execute Time")
-    process_one_metric("kv_transfer_time", "KV Transfer Time", "KV Transfer Time")
 
     print("=" * 50)
 
@@ -775,9 +775,9 @@ def save_to_pytorch_benchmark_format(args: argparse.Namespace,
         "median_itl_ms", "mean_itl_ms", "std_itl_ms", "p99_itl_ms",
         "mean_prefill_queue_time_ms", "median_prefill_queue_time_ms", "std_prefill_queue_time_ms",
         "mean_prefill_execute_time_ms", "median_prefill_execute_time_ms", "std_prefill_execute_time_ms",
+        "mean_kv_transfer_time_ms", "median_kv_transfer_time_ms", "std_kv_transfer_time_ms",
         "mean_decode_queue_time_ms", "median_decode_queue_time_ms", "std_decode_queue_time_ms",
         "mean_decode_execute_time_ms", "median_decode_execute_time_ms", "std_decode_execute_time_ms",
-        "mean_kv_transfer_time_ms", "median_kv_transfer_time_ms", "std_kv_transfer_time_ms",
     ]
     # These raw data might be useful, but they are rather big. They can be added
     # later if needed
