@@ -21,6 +21,7 @@ import gc
 import json
 import os
 import random
+import re
 import time
 import warnings
 from collections.abc import AsyncGenerator, Iterable
@@ -43,6 +44,48 @@ from vllm.benchmarks.utils import (convert_to_pytorch_benchmark_format,
 from vllm.transformers_utils.tokenizer import get_tokenizer
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
+
+
+def parse_kv_transfer_times_from_log(log_file_path: str = "decode_instance_0.log") -> list[float]:
+    """
+    Parse KV transfer times from log file.
+    
+    Args:
+        log_file_path: Path to the log file
+        
+    Returns:
+        List of KV transfer times in seconds (excluding the first profile record)
+    """
+    kv_transfer_times = []
+    
+    if not os.path.exists(log_file_path):
+        print(f"Warning: Log file {log_file_path} not found. KV transfer times will be empty.")
+        return kv_transfer_times
+    
+    # Pattern to match the KV transfer time log entries
+    # Example: INFO 08-14 01:41:19 [kv_connector_model_runner_mixin.py:116] Request cmpl-4e2a5029-615b-4710-af4c-304ef5cb3d7d-0 total KV transfer time: 0.0167s
+    pattern = r'INFO.*\[kv_connector_model_runner_mixin\.py:\d+\] Request .* total KV transfer time: ([\d.]+)s'
+    
+    try:
+        with open(log_file_path, 'r', encoding='utf-8') as f:
+            first_entry_skipped = False
+            for line in f:
+                match = re.search(pattern, line)
+                if match:
+                    if not first_entry_skipped:
+                        # Skip the first entry (profile stage)
+                        first_entry_skipped = True
+                        continue
+                    
+                    time_seconds = float(match.group(1))
+                    kv_transfer_times.append(time_seconds)
+    
+    except Exception as e:
+        print(f"Warning: Error reading log file {log_file_path}: {e}")
+        return []
+    
+    print(f"Parsed {len(kv_transfer_times)} KV transfer time records from {log_file_path}")
+    return kv_transfer_times
 
 
 @dataclass
@@ -92,6 +135,11 @@ class BenchmarkMetrics:
     median_decode_execute_time_ms: float = 0.0
     std_decode_execute_time_ms: float = 0.0
     percentiles_decode_execute_time_ms: list[tuple[float, float]] = field(
+        default_factory=list)
+    mean_kv_transfer_time_ms: float = 0.0
+    median_kv_transfer_time_ms: float = 0.0
+    std_kv_transfer_time_ms: float = 0.0
+    percentiles_kv_transfer_time_ms: list[tuple[float, float]] = field(
         default_factory=list)
 
 
@@ -215,6 +263,7 @@ def calculate_metrics(
     tokenizer: PreTrainedTokenizerBase,
     selected_percentiles: list[float],
     goodput_config_dict: dict[str, float],
+    kv_transfer_times: list[float] = None,
 ) -> tuple[BenchmarkMetrics, list[int]]:
     """Calculate the metrics for the benchmark.
 
@@ -243,6 +292,11 @@ def calculate_metrics(
     prefill_execute_times: list[float] = []
     decode_queue_times: list[float] = []
     decode_execute_times: list[float] = []
+    
+    # Use provided kv_transfer_times or empty list
+    if kv_transfer_times is None:
+        kv_transfer_times = []
+    
     for i in range(len(outputs)):
         if outputs[i].success:
             output_len = outputs[i].output_tokens
@@ -373,6 +427,13 @@ def calculate_metrics(
             (p, np.percentile(decode_execute_times or 0, p))
             for p in selected_percentiles
         ] if decode_execute_times else [],
+        mean_kv_transfer_time_ms=np.mean(kv_transfer_times or 0) * 1000,
+        median_kv_transfer_time_ms=np.median(kv_transfer_times or 0) * 1000,
+        std_kv_transfer_time_ms=np.std(kv_transfer_times or 0) * 1000,
+        percentiles_kv_transfer_time_ms=[
+            (p, np.percentile(kv_transfer_times or 0, p) * 1000)
+            for p in selected_percentiles
+        ] if kv_transfer_times else [],
     )
 
     return metrics, actual_output_lens
@@ -545,6 +606,9 @@ async def benchmark(
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
 
+    # Parse KV transfer times from log file
+    kv_transfer_times = parse_kv_transfer_times_from_log()
+    
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,
         outputs=outputs,
@@ -552,6 +616,7 @@ async def benchmark(
         tokenizer=tokenizer,
         selected_percentiles=selected_percentiles,
         goodput_config_dict=goodput_config_dict,
+        kv_transfer_times=kv_transfer_times,
     )
 
     print("{s:{c}^{n}}".format(s=' Serving Benchmark Result ', n=50, c='='))
@@ -597,6 +662,7 @@ async def benchmark(
         "errors": [output.error for output in outputs],
         "prefill_queue_times": [output.prefill_queued_time for output in outputs],
         "prefill_execute_times": [output.prefill_execute_time for output in outputs],
+        "kv_transfer_times": kv_transfer_times,
         "decode_queue_times": [output.decode_queued_time for output in outputs],
         "decode_execute_times": [output.decode_execute_time for output in outputs],
     }
@@ -645,6 +711,7 @@ async def benchmark(
     process_one_metric("prefill_execute_time", "Prefill Execute Time", "Prefill Execute Time")
     process_one_metric("decode_queue_time", "Decode Queue Time", "Decode Queue Time")
     process_one_metric("decode_execute_time", "Decode Execute Time", "Decode Execute Time")
+    process_one_metric("kv_transfer_time", "KV Transfer Time", "KV Transfer Time")
 
     print("=" * 50)
 
@@ -710,12 +777,14 @@ def save_to_pytorch_benchmark_format(args: argparse.Namespace,
         "mean_prefill_execute_time_ms", "median_prefill_execute_time_ms", "std_prefill_execute_time_ms",
         "mean_decode_queue_time_ms", "median_decode_queue_time_ms", "std_decode_queue_time_ms",
         "mean_decode_execute_time_ms", "median_decode_execute_time_ms", "std_decode_execute_time_ms",
+        "mean_kv_transfer_time_ms", "median_kv_transfer_time_ms", "std_kv_transfer_time_ms",
     ]
     # These raw data might be useful, but they are rather big. They can be added
     # later if needed
     ignored_metrics = [
         "ttfts", "itls", "generated_texts", "errors", 
         "prefill_queue_times", "prefill_execute_times",
+        "kv_transfer_times",
         "decode_queue_times", "decode_execute_times",
     ]
     pt_records = convert_to_pytorch_benchmark_format(
@@ -890,12 +959,12 @@ def add_cli_args(parser: argparse.ArgumentParser):
         "--percentile-metrics",
         type=str,
         default="ttft,tpot,itl,e2el,prefill_queue_time,prefill_execute_time,"
-        "decode_queue_time,decode_execute_time",
+        "decode_queue_time,decode_execute_time,kv_transfer_time",
         help="Comma-separated list of selected metrics to report percentils. "
         "This argument specifies the metrics to report percentiles. "
         "Allowed metric names are \"ttft\", \"tpot\", \"itl\", \"e2el\", "
         "\"prefill_queue_time\", \"prefill_execute_time\", "
-        "\"decode_queue_time\", \"decode_execute_time\". ")
+        "\"decode_queue_time\", \"decode_execute_time\", \"kv_transfer_time\". ")
     parser.add_argument(
         "--metric-percentiles",
         type=str,
@@ -1154,6 +1223,7 @@ def main(args: argparse.Namespace):
                     "errors",
                     "prefill_queue_times",
                     "prefill_execute_times",
+                    "kv_transfer_times",
                     "decode_queue_times",
                     "decode_execute_times",
             ]:

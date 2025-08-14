@@ -385,6 +385,8 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
         """
         # Remove finished requests from the cached states.
         for req_id in scheduler_output.finished_req_ids:
+            # Log cumulative KV transfer time before removing the request
+            self.log_kv_transfer_cumulative_time(req_id)
             self.requests.pop(req_id, None)
             self.encoder_cache.pop(req_id, None)
         # Remove the finished requests from the persistent batch.
@@ -1569,7 +1571,7 @@ class GPUModelRunner(LoRAModelRunnerMixin, KVConnectorModelRunnerMixin):
                 num_tokens_across_dp=num_tokens_across_dp,
                 skip_cuda_graphs=skip_cuda_graphs,
         ):
-            self.maybe_setup_kv_connector(scheduler_output)
+            self.maybe_setup_kv_connector_with_timing(scheduler_output)
 
             model_output = self.model(
                 input_ids=input_ids,
